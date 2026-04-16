@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>爱心弹窗 · 暖心小助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #f9f3f0;
+            font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", Roboto, sans-serif;
+            cursor: default;
+            position: relative;
+        }
+
+        .floating-popup {
+            position: fixed;
+            width: 180px;
+            height: 80px;
+            border-radius: 20px;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2), 0 2px 4px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(0px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            cursor: move;
+            transition: box-shadow 0.1s ease;
+            will-change: left, top;
+            z-index: 1000;
+            font-weight: bold;
+            padding: 12px;
+            word-break: break-word;
+            border: 1px solid rgba(255, 255, 240, 0.5);
+        }
+
+        .floating-popup:hover {
+            box-shadow: 0 18px 32px rgba(0, 0, 0, 0.25);
+            transform: scale(1.01);
+            transition: transform 0.1s ease;
+        }
+
+        .popup-text {
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.3;
+            text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+            letter-spacing: 1px;
+        }
+
+        .popup-close-hint {
+            position: absolute;
+            bottom: 6px;
+            right: 12px;
+            font-size: 10px;
+            opacity: 0.5;
+            color: #444;
+            pointer-events: none;
+            font-weight: normal;
+        }
+
+        .info-note {
+            position: fixed;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #eee;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            z-index: 9999;
+            pointer-events: none;
+            font-family: monospace;
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body>
+<div class="info-note">❤ 爱心弹窗中 · 可拖拽 | 右键关闭弹窗</div>
+
+<script>
+    (function () {
+        const WINDOW_WIDTH = 180;
+        const WINDOW_HEIGHT = 80;
+        const HEART_STEP = 3;
+        const HEART_SPEED = 30;
+        const HEART_STAY = 2000;
+        const RANDOM_COUNT = 150;
+        const RANDOM_SPEED = 25;
+
+        const MESSAGES = [
+            "好好爱自己",
+            "顺顺利利",
+            "别太累啦",
+            "多喝水哦~",
+            "好好吃饭",
+            "我想你了",
+            "天冷了多穿衣服",
+            "保持好心情"
+        ];
+
+        const BG_COLORS = [
+            "#ffb6c1",
+            "#98fb98",
+            "#87cefa",
+            "#fffacd",
+            "#dda0dd"
+        ];
+
+        class PopupApp {
+            constructor() {
+                this.screenWidth = window.innerWidth;
+                this.screenHeight = window.innerHeight;
+                this.allPopups = [];
+                this.heartPoints = [];
+                this.currentHeartIndex = 0;
+                this.heartTimer = null;
+                this.heartCloseTimer = null;
+                this.randomTimer = null;
+                this.randomStepCount = 0;
+                this.heartScale = 1.0;
+                this.centerX = this.screenWidth / 2;
+                this.centerY = this.screenHeight / 2;
+                this.isHeartPhase = false;
+                this.isRandomPhase = false;
+
+                this.calcHeartScale();
+                this.generateHeartPoints();
+
+                setTimeout(() => {
+                    this.startAnimation();
+                }, 100);
+
+                window.addEventListener("resize", () => {
+                    this.screenWidth = window.innerWidth;
+                    this.screenHeight = window.innerHeight;
+                });
+            }
+
+            calcHeartScale() {
+                const shortSide = Math.min(this.screenWidth, this.screenHeight);
+                const targetWidth = shortSide * 0.8;
+                this.heartScale = Math.max(targetWidth / 32, 1.0);
+            }
+
+            generateHeartPoints() {
+                const points = [];
+                const centerX = this.centerX;
+                const centerY = this.centerY;
+                const scale = this.heartScale;
+
+                for (let angle = 0; angle < 360; angle += HEART_STEP) {
+                    const rad = angle * Math.PI / 180;
+                    const xRaw = 16 * Math.pow(Math.sin(rad), 3);
+                    const yRaw =
+                        13 * Math.cos(rad) -
+                        5 * Math.cos(2 * rad) -
+                        2 * Math.cos(3 * rad) -
+                        Math.cos(4 * rad);
+
+                    const x = centerX + scale * xRaw;
+                    const y = centerY - scale * yRaw;
+                    points.push({ x: Math.round(x), y: Math.round(y) });
+                }
+
+                this.heartPoints = points;
+            }
+
+            cleanup() {
+                if (this.heartTimer) {
+                    clearTimeout(this.heartTimer);
+                    this.heartTimer = null;
+                }
+                if (this.heartCloseTimer) {
+                    clearTimeout(this.heartCloseTimer);
+                    this.heartCloseTimer = null;
+                }
+                if (this.randomTimer) {
+                    clearTimeout(this.randomTimer);
+                    this.randomTimer = null;
+                }
+
+                for (let i = this.allPopups.length - 1; i >= 0; i--) {
+                    const popup = this.allPopups[i];
+                    if (popup && popup.parentNode) {
+                        popup.parentNode.removeChild(popup);
+                    }
+                }
+
+                this.allPopups = [];
+                this.currentHeartIndex = 0;
+                this.randomStepCount = 0;
+                this.isHeartPhase = false;
+                this.isRandomPhase = false;
+            }
+
+            startAnimation() {
+                this.cleanup();
+                this.screenWidth = window.innerWidth;
+                this.screenHeight = window.innerHeight;
+                this.centerX = this.screenWidth / 2;
+                this.centerY = this.screenHeight / 2;
+                this.calcHeartScale();
+                this.generateHeartPoints();
+                this.currentHeartIndex = 0;
+                this.isHeartPhase = true;
+                this.spawnHeartStep();
+            }
+
+            spawnHeartStep() {
+                if (!this.isHeartPhase) {
+                    return;
+                }
+
+                if (this.currentHeartIndex < this.heartPoints.length) {
+                    const point = this.heartPoints[this.currentHeartIndex];
+                    let winX = point.x - WINDOW_WIDTH / 2;
+                    let winY = point.y - WINDOW_HEIGHT / 2;
+
+                    winX = Math.max(0, Math.min(winX, this.screenWidth - WINDOW_WIDTH));
+                    winY = Math.max(0, Math.min(winY, this.screenHeight - WINDOW_HEIGHT));
+
+                    this.createPopup(winX, winY);
+                    this.currentHeartIndex++;
+
+                    this.heartTimer = setTimeout(() => {
+                        this.spawnHeartStep();
+                    }, HEART_SPEED);
+                } else {
+                    this.heartTimer = null;
+                    this.heartCloseTimer = setTimeout(() => {
+                        this.closeAllHeartWindows();
+                    }, HEART_STAY);
+                }
+            }
+
+            closeAllHeartWindows() {
+                for (let i = this.allPopups.length - 1; i >= 0; i--) {
+                    const popup = this.allPopups[i];
+                    if (popup && popup.parentNode) {
+                        popup.parentNode.removeChild(popup);
+                    }
+                }
+
+                this.allPopups = [];
+                this.isHeartPhase = false;
+                this.randomStepCount = 0;
+                this.isRandomPhase = true;
+                this.spawnRandomStep();
+            }
+
+            spawnRandomStep() {
+                if (!this.isRandomPhase) {
+                    return;
+                }
+
+                if (this.randomStepCount < RANDOM_COUNT) {
+                    let x = Math.random() * (this.screenWidth - WINDOW_WIDTH);
+                    let y = Math.random() * (this.screenHeight - WINDOW_HEIGHT);
+                    x = Math.max(0, Math.min(x, this.screenWidth - WINDOW_WIDTH));
+                    y = Math.max(0, Math.min(y, this.screenHeight - WINDOW_HEIGHT));
+
+                    this.createPopup(x, y);
+                    this.randomStepCount++;
+
+                    this.randomTimer = setTimeout(() => {
+                        this.spawnRandomStep();
+                    }, RANDOM_SPEED);
+                } else {
+                    this.randomTimer = null;
+                    this.isRandomPhase = false;
+                }
+            }
+
+            createPopup(x, y) {
+                const msg = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+                const bgColor = BG_COLORS[Math.floor(Math.random() * BG_COLORS.length)];
+
+                const popupDiv = document.createElement("div");
+                popupDiv.className = "floating-popup";
+                popupDiv.style.left = `${x}px`;
+                popupDiv.style.top = `${y}px`;
+                popupDiv.style.backgroundColor = bgColor;
+                popupDiv.style.width = `${WINDOW_WIDTH}px`;
+                popupDiv.style.height = `${WINDOW_HEIGHT}px`;
+
+                const textSpan = document.createElement("div");
+                textSpan.className = "popup-text";
+                textSpan.innerText = msg;
+                popupDiv.appendChild(textSpan);
+
+                const hintSpan = document.createElement("div");
+                hintSpan.className = "popup-close-hint";
+                hintSpan.innerText = "右键关闭";
+                popupDiv.appendChild(hintSpan);
+
+                document.body.appendChild(popupDiv);
+                this.allPopups.push(popupDiv);
+                this.makeDraggable(popupDiv);
+
+                popupDiv.addEventListener("contextmenu", (e) => {
+                    e.preventDefault();
+                    this.destroyPopup(popupDiv);
+                });
+
+                return popupDiv;
+            }
+
+            makeDraggable(element) {
+                let startX = 0;
+                let startY = 0;
+                let startLeft = 0;
+                let startTop = 0;
+                let isDragging = false;
+
+                const onMouseDown = (e) => {
+                    if (e.button !== 0) {
+                        return;
+                    }
+
+                    e.preventDefault();
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startLeft = parseFloat(element.style.left) || 0;
+                    startTop = parseFloat(element.style.top) || 0;
+                    isDragging = true;
+
+                    window.addEventListener("mousemove", onMouseMove);
+                    window.addEventListener("mouseup", onMouseUp);
+                    element.style.cursor = "grabbing";
+                };
+
+                const onMouseMove = (e) => {
+                    if (!isDragging) {
+                        return;
+                    }
+
+                    e.preventDefault();
+                    let newLeft = startLeft + (e.clientX - startX);
+                    let newTop = startTop + (e.clientY - startY);
+
+                    const maxLeft = this.screenWidth - WINDOW_WIDTH;
+                    const maxTop = this.screenHeight - WINDOW_HEIGHT;
+                    newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+                    newTop = Math.max(0, Math.min(newTop, maxTop));
+
+                    element.style.left = `${newLeft}px`;
+                    element.style.top = `${newTop}px`;
+                };
+
+                const onMouseUp = () => {
+                    isDragging = false;
+                    element.style.cursor = "move";
+                    window.removeEventListener("mousemove", onMouseMove);
+                    window.removeEventListener("mouseup", onMouseUp);
+                };
+
+                element.addEventListener("mousedown", onMouseDown);
+                element.ondragstart = (e) => e.preventDefault();
+                element.style.cursor = "move";
+            }
+
+            destroyPopup(popup) {
+                const index = this.allPopups.indexOf(popup);
+                if (index !== -1) {
+                    this.allPopups.splice(index, 1);
+                }
+                if (popup && popup.parentNode) {
+                    popup.parentNode.removeChild(popup);
+                }
+            }
+        }
+
+        window.addEventListener("load", () => {
+            window.app = new PopupApp();
+        });
+    })();
+</script>
+</body>
+</html>
